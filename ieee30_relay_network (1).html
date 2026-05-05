@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Extended IEEE 30-Bus — Relay Protection Network</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f9; }
+
+  #header {
+    background: #1a1a2e;
+    color: white;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  #header h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.3px; }
+  #header p  { font-size: 11px; color: #aab; margin-top: 2px; }
+
+  #legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    padding: 10px 20px;
+    background: white;
+    border-bottom: 1px solid #dde;
+    align-items: center;
+  }
+  #legend .lbl { font-size: 11px; font-weight: 600; color: #444; margin-right: 4px; }
+  .ci { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #555; cursor: pointer; padding: 3px 8px; border-radius: 20px; border: 1.5px solid transparent; transition: all 0.2s; user-select: none; }
+  .ci:hover { background: #f0f0f0; }
+  .ci.active { border-color: currentColor; background: #f8f8f8; font-weight: 600; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+
+  #hint {
+    text-align: center;
+    font-size: 11px;
+    color: #888;
+    padding: 5px;
+    background: white;
+    border-bottom: 1px solid #eee;
+  }
+
+  #canvas {
+    position: relative;
+    width: 100%;
+    height: calc(100vh - 130px);
+    overflow: hidden;
+    background: white;
+  }
+
+  svg { width: 100%; height: 100%; display: block; }
+
+  #tooltip {
+    position: absolute;
+    background: white;
+    border: 1px solid #ccd;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    pointer-events: none;
+    display: none;
+    z-index: 100;
+    color: #333;
+    line-height: 1.7;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    max-width: 240px;
+  }
+  #tooltip strong { font-size: 13px; }
+  #tooltip .sub { color: #777; font-size: 11px; }
+
+  #reset-btn {
+    padding: 6px 14px;
+    background: #1a1a2e;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #reset-btn:hover { background: #2d2d50; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div>
+    <h1>Extended IEEE 30-Bus System — Relay Protection Network</h1>
+    <p>81 relays · 6 clusters · primary–backup relay coordination links</p>
+  </div>
+  <button id="reset-btn" onclick="resetHighlight()">Reset Highlight</button>
+</div>
+
+<div id="legend">
+  <span class="lbl">Clusters:</span>
+  <div class="ci" data-cluster="1" onclick="toggleCluster(1)" style="color:#D63031"><div class="dot" style="background:#D63031"></div>Cluster 1 · 12 relays</div>
+  <div class="ci" data-cluster="2" onclick="toggleCluster(2)" style="color:#27AE60"><div class="dot" style="background:#27AE60"></div>Cluster 2 · 10 relays</div>
+  <div class="ci" data-cluster="3" onclick="toggleCluster(3)" style="color:#2980B9"><div class="dot" style="background:#2980B9"></div>Cluster 3 · 15 relays</div>
+  <div class="ci" data-cluster="4" onclick="toggleCluster(4)" style="color:#E67E22"><div class="dot" style="background:#E67E22"></div>Cluster 4 · 22 relays</div>
+  <div class="ci" data-cluster="5" onclick="toggleCluster(5)" style="color:#8E44AD"><div class="dot" style="background:#8E44AD"></div>Cluster 5 · 9 relays</div>
+  <div class="ci" data-cluster="6" onclick="toggleCluster(6)" style="color:#16A085"><div class="dot" style="background:#16A085"></div>Cluster 6 · 13 relays</div>
+</div>
+
+<div id="hint">🖱 Drag nodes &nbsp;·&nbsp; Scroll to zoom &nbsp;·&nbsp; Hover for relay info &nbsp;·&nbsp; Click node or legend to highlight cluster</div>
+
+<div id="canvas">
+  <div id="tooltip"></div>
+  <svg id="rnet-svg"></svg>
+</div>
+
+<script>
+const CLUSTERS = {
+  1: [12,14,16,19,21,25,60,61,65,67,71,72],
+  2: [1,3,5,8,22,36,55,57,76,79],
+  3: [2,4,7,9,11,23,32,34,44,45,47,50,75,77,78],
+  4: [6,10,15,17,18,26,38,40,42,43,46,48,49,51,52,54,56,58,59,64,73,80],
+  5: [27,29,31,33,35,37,39,41,74],
+  6: [13,20,24,28,30,53,62,63,66,68,69,70,81],
+};
+
+const COLORS = {
+  1:'#D63031', 2:'#27AE60', 3:'#2980B9',
+  4:'#E67E22', 5:'#8E44AD', 6:'#16A085'
+};
+
+const CNAMES = {
+  1:'Cluster 1', 2:'Cluster 2', 3:'Cluster 3',
+  4:'Cluster 4', 5:'Cluster 5', 6:'Cluster 6'
+};
+
+const relay_cluster = {};
+Object.entries(CLUSTERS).forEach(([c, rs]) => rs.forEach(r => relay_cluster[r] = +c));
+
+const RAW_EDGES = [
+  [1,4],[1,6],[2,3],[2,8],[2,10],[2,12],[3,6],[4,8],[4,10],[4,12],
+  [5,2],[5,4],[6,14],[7,1],[7,3],[7,10],[7,12],[8,13],[8,16],[8,73],[8,74],
+  [9,1],[9,3],[9,8],[9,12],[10,18],[11,1],[11,3],[11,8],[11,10],
+  [12,15],[12,20],[12,22],[12,24],[12,76],[12,78],[12,79],
+  [13,5],[14,7],[14,16],[14,73],[14,74],[15,7],[15,13],[15,73],[15,74],
+  [16,11],[16,20],[16,22],[16,24],[16,76],[16,78],[16,79],
+  [17,9],[18,19],[19,11],[19,15],[19,22],[19,24],[19,76],[19,78],[19,79],
+  [20,17],[21,11],[21,15],[21,20],[21,24],[21,76],[21,78],[21,79],
+  [22,26],[23,11],[23,15],[23,20],[23,22],[23,76],[23,78],[23,79],
+  [24,25],[24,81],[25,21],[26,23],[26,81],
+  [27,30],[27,32],[27,34],[27,36],[27,75],[27,77],[27,79],
+  [28,49],[29,28],[29,32],[29,34],[29,36],[29,75],[29,77],[29,79],
+  [30,53],[31,28],[31,30],[31,34],[31,36],[31,75],[31,77],[31,79],
+  [32,33],[32,56],[33,28],[33,30],[33,32],[33,36],[33,75],[33,77],[33,79],
+  [34,31],[34,56],[35,28],[35,30],[35,32],[35,34],[35,75],[35,77],[35,79],
+  [36,55],[36,58],[37,40],[37,42],[37,72],[37,74],
+  [38,44],[39,38],[39,42],[39,72],[39,74],
+  [40,43],[40,46],[40,48],[41,38],[41,40],[41,72],[41,74],
+  [42,50],[43,37],[44,39],[44,46],[44,48],[45,39],[45,43],[45,48],
+  [46,52],[47,39],[47,43],[47,46],[48,60],[49,41],[50,27],[51,45],
+  [52,54],[53,51],[54,29],[55,31],[55,33],[56,35],[56,58],
+  [57,35],[57,55],[58,59],[58,62],[59,47],[60,57],[60,62],
+  [61,57],[61,59],[62,64],[63,61],[64,80],[65,63],[65,68],[65,80],
+  [66,70],[67,63],[67,66],[67,80],[68,69],[69,65],[70,67],
+  [71,61],[71,64],[72,7],[72,13],[72,16],
+  [73,38],[73,40],[73,42],
+  [75,11],[75,15],[75,20],[75,22],[75,24],[75,78],[75,79],
+  [76,28],[76,30],[76,32],[76,34],[76,36],[76,77],[76,79],
+  [77,11],[77,15],[77,20],[77,22],[77,24],[77,76],
+  [78,28],[78,30],[78,32],[78,34],[78,36],[78,75],
+  [80,23],[80,25],[81,63],
+];
+
+const edgeSet = new Set(), links = [];
+RAW_EDGES.forEach(([s,t]) => {
+  const k = Math.min(s,t)+'-'+Math.max(s,t);
+  if (!edgeSet.has(k)) { edgeSet.add(k); links.push({source:s, target:t}); }
+});
+
+const nodes = Object.keys(relay_cluster).map(r => ({ id:+r, cluster: relay_cluster[+r] }));
+
+const svgEl = document.getElementById('rnet-svg');
+const W = svgEl.clientWidth || window.innerWidth;
+const H = svgEl.clientHeight || window.innerHeight - 130;
+
+// Seed initial positions by cluster centroid
+const angles = {1:30, 2:90, 3:150, 4:210, 5:270, 6:330};
+const R = Math.min(W,H) * 0.28;
+nodes.forEach(d => {
+  const a = angles[d.cluster] * Math.PI / 180;
+  d.x = W/2 + R * Math.cos(a) + (Math.random()-0.5)*80;
+  d.y = H/2 + R * Math.sin(a) + (Math.random()-0.5)*80;
+});
+
+const svg = d3.select('#rnet-svg');
+const g   = svg.append('g');
+
+svg.call(d3.zoom().scaleExtent([0.2, 8])
+  .on('zoom', e => g.attr('transform', e.transform)));
+
+const sim = d3.forceSimulation(nodes)
+  .force('link', d3.forceLink(links).id(d=>d.id).distance(48).strength(0.6))
+  .force('charge', d3.forceManyBody().strength(-280))
+  .force('center', d3.forceCenter(W/2, H/2))
+  .force('collision', d3.forceCollide(18));
+
+const link = g.append('g').selectAll('line').data(links).join('line')
+  .attr('stroke', d => {
+    const sc = relay_cluster[typeof d.source==='object'?d.source.id:d.source];
+    const tc = relay_cluster[typeof d.target==='object'?d.target.id:d.target];
+    return sc===tc ? COLORS[sc] : '#bbbbbb';
+  })
+  .attr('stroke-opacity', d => {
+    const sc = relay_cluster[typeof d.source==='object'?d.source.id:d.source];
+    const tc = relay_cluster[typeof d.target==='object'?d.target.id:d.target];
+    return sc===tc ? 0.35 : 0.15;
+  })
+  .attr('stroke-width', d => {
+    const sc = relay_cluster[typeof d.source==='object'?d.source.id:d.source];
+    const tc = relay_cluster[typeof d.target==='object'?d.target.id:d.target];
+    return sc===tc ? 1.2 : 0.7;
+  });
+
+const node = g.append('g').selectAll('g').data(nodes).join('g')
+  .style('cursor','grab')
+  .call(d3.drag()
+    .on('start',(e,d)=>{ if(!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+    .on('drag', (e,d)=>{ d.fx=e.x; d.fy=e.y; })
+    .on('end',  (e,d)=>{ if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; })
+  );
+
+node.append('circle')
+  .attr('r', 14)
+  .attr('fill', d => COLORS[d.cluster])
+  .attr('stroke', 'white')
+  .attr('stroke-width', 2);
+
+node.append('text')
+  .text(d => d.id)
+  .attr('text-anchor','middle')
+  .attr('dominant-baseline','central')
+  .attr('font-size', d => d.id < 10 ? '9px' : '7.8px')
+  .attr('font-family','Segoe UI, Arial, sans-serif')
+  .attr('font-weight','700')
+  .attr('fill','white')
+  .style('pointer-events','none')
+  .style('user-select','none');
+
+const tip = document.getElementById('tooltip');
+const canvas = document.getElementById('canvas');
+
+node.on('mouseover', (e, d) => {
+  const backs = RAW_EDGES.filter(([p])=>p===d.id).map(([,b])=>b);
+  const prims = RAW_EDGES.filter(([,b])=>b===d.id).map(([p])=>p);
+  tip.innerHTML = `
+    <strong style="color:${COLORS[d.cluster]}">Relay ${d.id}</strong>
+    <span class="sub"> · ${CNAMES[d.cluster]}</span><br/>
+    <span style="color:#555">Backs up:</span> ${backs.length ? backs.join(', ') : '—'}<br/>
+    <span style="color:#555">Backed by:</span> ${prims.length ? prims.join(', ') : '—'}
+  `;
+  tip.style.display = 'block';
+  if (activeCluster === null) highlightCluster(d.cluster, false);
+})
+.on('mousemove', e => {
+  const cr = canvas.getBoundingClientRect();
+  let tx = e.clientX - cr.left + 16;
+  let ty = e.clientY - cr.top - 10;
+  if (tx + 250 > cr.width)  tx = e.clientX - cr.left - 260;
+  if (ty + 130 > cr.height) ty = e.clientY - cr.top - 140;
+  tip.style.left = tx + 'px';
+  tip.style.top  = ty + 'px';
+})
+.on('mouseout', () => {
+  tip.style.display = 'none';
+  if (activeCluster === null) resetHighlight();
+})
+.on('click', (e, d) => {
+  e.stopPropagation();
+  if (activeCluster === d.cluster) { resetHighlight(); }
+  else { activeCluster = d.cluster; highlightCluster(d.cluster, true); }
+});
+
+svg.on('click', () => resetHighlight());
+
+sim.on('tick', () => {
+  link
+    .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+    .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+  node.attr('transform', d => `translate(${d.x},${d.y})`);
+});
+
+let activeCluster = null;
+
+function highlightCluster(c, sticky) {
+  node.selectAll('circle')
+    .attr('opacity', d => d.cluster === c ? 1 : 0.12);
+  node.selectAll('text')
+    .attr('opacity', d => d.cluster === c ? 1 : 0.12);
+  link.attr('stroke-opacity', d => {
+    const sc = relay_cluster[typeof d.source==='object'?d.source.id:d.source];
+    const tc = relay_cluster[typeof d.target==='object'?d.target.id:d.target];
+    return (sc===c || tc===c) ? 0.6 : 0.03;
+  });
+  document.querySelectorAll('.ci').forEach(el => {
+    el.classList.toggle('active', +el.dataset.cluster === c);
+  });
+  if (sticky) activeCluster = c;
+}
+
+function resetHighlight() {
+  activeCluster = null;
+  node.selectAll('circle').attr('opacity', 1);
+  node.selectAll('text').attr('opacity', 1);
+  link.attr('stroke-opacity', d => {
+    const sc = relay_cluster[typeof d.source==='object'?d.source.id:d.source];
+    const tc = relay_cluster[typeof d.target==='object'?d.target.id:d.target];
+    return sc===tc ? 0.35 : 0.15;
+  });
+  document.querySelectorAll('.ci').forEach(el => el.classList.remove('active'));
+}
+
+function toggleCluster(c) {
+  if (activeCluster === c) resetHighlight();
+  else { activeCluster = c; highlightCluster(c, true); }
+}
+</script>
+</body>
+</html>
