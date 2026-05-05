@@ -1,0 +1,11 @@
+Docr_results.mat is a data set, you can be put in matlab and check all possible results (63x50).
+
+ where, the graphs can be generated from the same the results, further, the 6 cluster results are also fetch from the same data set.
+
+comutational time vs operaational time (figure data) is uploaded from the same file (docr_results.m)
+
+Further, graphviz online(free online platform)  file code can be put online to check cluster combination and relay in it. 
+
+where the communication links are also produce from the matrix. The matrix are basially the input for cluster.
+
+for any further detail feel free to email (mubashar_3001@yahoo.com). will respond with in a week.
